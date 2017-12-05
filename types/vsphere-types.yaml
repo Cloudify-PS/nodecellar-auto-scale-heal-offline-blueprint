@@ -1,0 +1,81 @@
+node_types:
+
+  ###########################################################
+  # We define a type that inherits vcloud's default
+  # server, and adds monitoring capabillities on top of it.
+  ###########################################################
+
+  nodecellar.nodes.MonitoredServer:
+    derived_from: cloudify.vsphere.nodes.Server
+    properties:
+      cloudify_agent:
+          default:
+            install_method: remote
+            user: { get_input: agent_user }
+            key: { get_input: agent_key }
+      server:
+        default:
+          template: { get_input: template_name }
+          cpus: { get_input: cpu }
+          memory: { get_input: memory }
+      networking:
+        default:
+          connect_networks:
+             - name: { get_input: network }
+               switch_distributed: { get_input: network_distributed }
+               management: True
+               external: True
+#            - name: { get_input: management_network }
+#              switch_distributed: { get_input: management_network_distributed }
+#              management: True
+#            - name: { get_input: external_network }
+#              switch_distributed: { get_input: external_network_distributed }
+#              external: True
+
+    interfaces:
+
+      ###########################################################
+      # We are infact telling cloudify to install a diamond
+      # monitoring agent on the server.
+      #
+      # (see https://github.com/BrightcoveOS/Diamond)
+      ###########################################################
+
+      cloudify.interfaces.monitoring_agent:
+        install:
+          implementation: diamond.diamond_agent.tasks.install
+          inputs:
+            diamond_config:
+              default:
+                interval: 1
+        start: diamond.diamond_agent.tasks.start
+        stop: diamond.diamond_agent.tasks.stop
+        uninstall: diamond.diamond_agent.tasks.uninstall
+
+      ###########################################################
+      # Adding some collectors. These collectors are necessary
+      # for the Cloudify UI to display the deafult metrics.
+      ###########################################################
+
+      cloudify.interfaces.monitoring:
+        start:
+          implementation: diamond.diamond_agent.tasks.add_collectors
+          inputs:
+            collectors_config:
+              default:
+                CPUCollector: {}
+                MemoryCollector: {}
+                LoadAverageCollector: {}
+                DiskUsageCollector:
+                  config:
+                    devices: sd[a-z]+[0-9]*$
+                NetworkCollector: {}
+                ProcessResourcesCollector:
+                  config:
+                    enabled: true
+                    unit: B
+                    measure_collector_time: true
+                    cpu_interval: 0.5
+                    process:
+                      node:
+                        name: node

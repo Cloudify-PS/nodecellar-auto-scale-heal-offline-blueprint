@@ -1,0 +1,46 @@
+
+policy_types:
+  scale_policy_type:
+    source: policies/scale.clj
+    properties:
+      policy_operates_on_group:
+        default: true
+      service_selector:
+        description: regular expression that selects the metric to be measured
+        default: ".*"
+      moving_window_size:
+        description: the moving window for individual sources in secs
+        default: 10
+      scale_threshold:
+        description: the value to trigger scaling over aggregrated moving values
+      scale_limit:
+        description: scaling limit
+        default: 10
+      scale_direction:
+        description: scale up ('<') or scale down ('>')
+        default: '<'
+      cooldown_time:
+        description: the time to wait before evaluating again after a scale
+        default: 60
+
+  scale_host_failure:
+    properties:
+      policy_operates_on_group:
+        description: |
+          If the policy should maintain its state for the whole group
+          or each node instance individually.
+        default: false
+      is_node_started_before_workflow:
+        description: Before triggering workflow, check if the node state is started
+        default: true
+      interval_between_workflows:
+        description: |
+          Trigger workflow only if the last workflow was triggered earlier than interval-between-workflows seconds ago.
+          if < 0  workflows can run concurrently.
+        default: 300
+      service:
+        description: Service names whose events should be taken into consideration
+        default:
+          - service
+    source: policies/host_failure.clj
+

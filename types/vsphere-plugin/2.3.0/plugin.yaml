@@ -1,0 +1,374 @@
+##################################################################################
+# Cloudify vSphere built in types and plugins definitions.
+##################################################################################
+
+plugins:
+    vsphere:
+        executor: central_deployment_agent
+        package_name: cloudify-vsphere-plugin
+        package_version: '2.3.0'
+        source: https://github.com/cloudify-cosmo/cloudify-vsphere-plugin/archive/2.3.0.zip
+
+data_types:
+    cloudify.datatypes.vsphere.Config:
+        properties:
+            username:
+                description: >
+                    vSphere username.
+                type: string
+                required: false
+            host:
+                description: >
+                    vCenter hostname or IP address.
+                type: string
+                required: false
+            password:
+                description: >
+                    vCenter password.
+                type: string
+                required: false
+            datacenter_name:
+                description: >
+                    datacenter name.
+                type: string
+                required: false
+            auto_placement:
+                description: >
+                    Must be true if you are using clusters.
+                    This is deprecated.
+                    In future releases the plugin will always determine where to place the VM.
+                type: string
+                required: false
+            resource_pool_name:
+                description: >
+                    Name of a resource pool.
+                    Defaults to Resources, which is a hidden resource pool on vSphere.
+                type: string
+                required: false
+            port:
+                description: >
+                    vCenter port for SDK.
+                type: integer
+                required: false
+            allow_insecure:
+                description: >
+                    Whether to allow insecure connections. Defaults to false, but this is not
+                    yet enforced on Python versions older than 2.7.9.
+                    Python versions pre-2.7.9 can only make insecure connections, which will
+                    fail in the next major version of this plugin unless this is set to false.
+                type: boolean
+                required: false
+            certificate_path:
+                description: >
+                    The path to the PEM encoded certificate for the vCenter. This will be used
+                    on Python 2.7.9 and above to verify the SSL connection.
+                    On older versions of python the connection will be insecure.
+                    It is not supported to set this while allow_insecure is set to 'true'.
+                type: string
+                required: false
+
+    cloudify.datatypes.vsphere.ServerProperties:
+        properties:
+            memory:
+                description: >
+                    Amount of RAM, in MB.
+                type: integer
+                required: true
+            cpus:
+                description: >
+                    Number of CPUs.
+                type: integer
+                required: true
+            template:
+                description: >
+                    Virtual machine template from which server will be spawned.
+                    See full documentation at docs.getcloudify.org for requirements.
+                type: string
+                required: true
+            name:
+                description: >
+                    Server name.
+                    Will use node name if this is not set.
+                    Must consist of only ASCII letters, numbers, and hyphens.
+                    Will automatically convert underscores to hyphens.
+                type: string
+                required: false
+
+    cloudify.datatypes.vsphere.NetworkingProperties:
+        properties:
+            domain:
+                description: >
+                    the domain for this server.
+                    Combined with the hostname this will produce the fully-qualified domain name
+                    (e.g. if ``domain`` is ``example.local`` and the host name is ``test-abc123``
+                    then the fully-qualified domain name will be ``test-abc123.example.local``)
+                type: string
+                required: false
+            dns_servers:
+                description: >
+                    List of DNS servers.
+                required: false
+            connect_networks:
+                description: |
+                    List of network interfaces to connect.
+                    These should be in the form of dicts with:
+                    name: The name of the network on vsphere, or of the related node if from_relationship is true.
+                    from_relationship: true/false- determines whether to use a relationship from a connected node (default false)
+                    management: true/false- determines if this is a management network interface (default false)
+                    external: true/false- determines if this is a external network interface (default false)
+                    switch_distributed: determines if this is connected to a distributed port group (default false)
+                    use_dhcp: whether to use DHCP for IP addressing (default true)
+                    network: network CIDR to use if use_dhcp is false
+                    gateway: default gateway to use if use_dhcp is false. You should only set this on one interface.
+                    ip: IP address to use if use_dhcp is false
+                required: false
+
+node_types:
+    cloudify.vsphere.nodes.Server:
+        derived_from: cloudify.nodes.Compute
+        properties:
+            allowed_hosts:
+                description: >
+                    Which ESX host(s) this server is allowed to be deployed on.
+                required: false
+            allowed_clusters:
+                description: >
+                    Which ESX cluster(s) this server is allowed to be deployed on.
+                required: false
+            allowed_datastores:
+                description: >
+                    Which ESX datastore(s) this server is allowed to be deployed on.
+                required: false
+            server:
+                type: cloudify.datatypes.vsphere.ServerProperties
+            networking:
+                type: cloudify.datatypes.vsphere.NetworkingProperties
+            custom_attributes:
+                description: |
+                    Dictionary of custom attribute keys & values.
+                    Keys which don't yet exist on the platform will
+                    be created automatically. ::
+
+                      custom_attributes:
+                        key: value
+                        lock: locked
+                        keyring: empty
+                required: false
+            connection_config:
+                type: cloudify.datatypes.vsphere.Config
+        interfaces:
+            cloudify.interfaces.lifecycle:
+                start:
+                    implementation: vsphere.vsphere_server_plugin.server.start
+                    inputs: {}
+                stop:
+                    implementation: vsphere.vsphere_server_plugin.server.stop
+                    inputs: {}
+                shutdown_guest:
+                    implementation: vsphere.vsphere_server_plugin.server.shutdown_guest
+                    inputs: {}
+                delete:
+                    implementation: vsphere.vsphere_server_plugin.server.delete
+                    inputs: {}
+            cloudify.interfaces.host:
+                get_state:
+                    implementation: vsphere.vsphere_server_plugin.server.get_state
+                    inputs: {}
+            cloudify.interfaces.modify:
+                resize:
+                    implementation: vsphere.vsphere_server_plugin.server.resize_server
+            cloudify.interfaces.power:
+                'on':
+                    implementation: vsphere.vsphere_server_plugin.power.power_on
+                'off':
+                    implementation: vsphere.vsphere_server_plugin.power.power_off
+                reset:
+                    implementation: vsphere.vsphere_server_plugin.power.reset
+                reboot:
+                    implementation: vsphere.vsphere_server_plugin.power.reboot
+                    inputs:
+                      max_wait_time:
+                        type: integer
+                        default: 300
+                        description: >
+                          How long to wait for the operation to complete.
+                shut_down:
+                    implementation: vsphere.vsphere_server_plugin.power.shut_down
+                    inputs:
+                      max_wait_time:
+                        type: integer
+                        default: 300
+                        description: >
+                          How long to wait for the operation to complete.
+
+    cloudify.vsphere.nodes.WindowsServer:
+        derived_from: cloudify.vsphere.nodes.Server
+        properties:
+            windows_password:
+                description: >
+                    Administrator password to set when deploying Windows instances.
+                    If this is not supplied, agent_config.password will be used (if that has been supplied).
+                    Supplying neither of these properties will result in an error.
+                type: string
+                required: false
+            windows_timezone:
+                description: >
+                    Timezone to set Windows instances to.
+                    See https://msdn.microsoft.com/en-us/library/ms912391%28v=winembedded.11%29.aspx
+                    Defaults to GMT without daylight savings.
+                type: integer
+                default: 90
+            windows_organization:
+                description: >
+                    The organization name to set on the Windows system.
+                type: string
+                default: Organization
+            custom_sysprep:
+                description: >
+                    A custom System Preparation Answers file
+                    to use for full customization of Windows.
+                    This can be generated by the Windows System Image Manager.
+                    Note that this file should be verified to work correctly before being applied,
+                    as any errors will appear only on Windows and will not be visible to the plugin.
+                    Also note that any scripts, etc.,
+                    that attempt to work on the VM after the custom sysprep must tolerate multiple retries
+                    because the plugin cannot detect when the custom sysprep has finished,
+                    so provides the server as soon as the IPs are assigned
+                    (which occurs before customization is complete).
+                type: string
+                required: false
+            os_family:
+                default: windows
+                description: Overridden default from ``Server`` node_type.
+            agent_config:
+                type: cloudify.datatypes.AgentConfig
+                default:
+                    port: 5985
+
+    cloudify.vsphere.nodes.Network:
+        derived_from: cloudify.nodes.Network
+        properties:
+            use_existing_resource:
+                description: >
+                    Whether to use a network that already exists on vSphere.
+                default: False
+            network:
+                description: |
+                    key-value network configuration. ::
+
+                        name: network name
+                        vlan_id: vLAN identifier which will be assigned to the network
+                        vswitch_name: name of the vSwitch the network will be connected to.
+            connection_config:
+                default: {}
+                type: cloudify.datatypes.vsphere.Config
+        interfaces:
+            cloudify.interfaces.lifecycle:
+                create:
+                    implementation: vsphere.vsphere_network_plugin.network.create
+                    inputs: {}
+                delete:
+                    implementation: vsphere.vsphere_network_plugin.network.delete
+                    inputs: {}
+
+    cloudify.vsphere.nodes.Storage:
+        derived_from: cloudify.nodes.Volume
+        properties:
+            storage:
+                description: |
+                  key-value storage disk configuration. ::
+
+                    storage_size: disk size in GB.
+            connection_config:
+                default: {}
+                type: cloudify.datatypes.vsphere.Config
+        interfaces:
+            cloudify.interfaces.lifecycle:
+                create:
+                    implementation: vsphere.vsphere_storage_plugin.storage.create
+                    inputs: {}
+                delete:
+                    implementation: vsphere.vsphere_storage_plugin.storage.delete
+                    inputs: {}
+
+    cloudify.vsphere.nodes.Datacenter:
+        derived_from: cloudify.nodes.Root
+        properties:
+            name:
+                description: >
+                    The name of the datacenter.
+            use_existing_resource:
+                description: >
+                    Whether to use a datacenter that already exists on vSphere.
+                    Currently, datacenters cannot be created or deleted,
+                    and this node type exists only for compatibility with the NSX plugin.
+                default: True
+            connection_config:
+                default: {}
+                type: cloudify.datatypes.vsphere.Config
+        interfaces:
+            cloudify.interfaces.lifecycle:
+                create:
+                    implementation: vsphere.cloudify_vsphere.datacenter.create
+                    inputs: {}
+                delete:
+                    implementation: vsphere.cloudify_vsphere.datacenter.delete
+                    inputs: {}
+
+    cloudify.vsphere.nodes.Datastore:
+        derived_from: cloudify.nodes.Root
+        properties:
+            name:
+                description: >
+                    The name of the datastore.
+            use_existing_resource:
+                description: >
+                    Whether to use a datastore that already exists on vSphere.
+                    Currently, datastores cannot be created or deleted,
+                    and this node type exists only for compatibility with the NSX plugin.
+                default: True
+            connection_config:
+                default: {}
+                type: cloudify.datatypes.vsphere.Config
+        interfaces:
+            cloudify.interfaces.lifecycle:
+                create:
+                    implementation: vsphere.cloudify_vsphere.datastore.create
+                    inputs: {}
+                delete:
+                    implementation: vsphere.cloudify_vsphere.datastore.delete
+                    inputs: {}
+
+    cloudify.vsphere.nodes.Cluster:
+        derived_from: cloudify.nodes.Root
+        properties:
+            name:
+                description: >
+                    The name of the cluster.
+            use_existing_resource:
+                description: >
+                    Whether to use a cluster that already exists on vSphere.
+                    Currently, clusters cannot be created or deleted,
+                    and this node type exists only for compatibility with the NSX plugin.
+                default: True
+            connection_config:
+                default: {}
+                type: cloudify.datatypes.vsphere.Config
+        interfaces:
+            cloudify.interfaces.lifecycle:
+                create:
+                    implementation: vsphere.cloudify_vsphere.cluster.create
+                    inputs: {}
+                delete:
+                    implementation: vsphere.cloudify_vsphere.cluster.delete
+                    inputs: {}
+
+relationships:
+    cloudify.vsphere.port_connected_to_network:
+        derived_from: cloudify.relationships.connected_to
+
+    cloudify.vsphere.port_connected_to_server:
+        derived_from: cloudify.relationships.connected_to
+
+    cloudify.vsphere.storage_connected_to_server:
+        derived_from: cloudify.relationships.connected_to

@@ -1,0 +1,275 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  This Blueprint installs the nodecellar application behind
+  an haproxy instance on an vsphere environment.
+
+imports:
+  - http://cloudify.co/spec/cloudify/4.2/types.yaml
+  - http://cloudify.co/spec/vsphere-plugin/2.3.0/plugin.yaml
+  - http://cloudify.co/spec/diamond-plugin/1.3.6/plugin.yaml
+
+  - types/vsphere-types.yaml
+  - types/nodecellar.yaml
+  - types/haproxy/haproxy.yaml
+  - types/scale/scale.yaml
+
+
+
+dsl_definitions:
+
+  connection_config: &connection_config
+    username: { get_input: vsphere_username }
+    password: { get_input: vsphere_password }
+    host: { get_input: vsphere_host }
+    datacenter_name: { get_input: vsphere_datacenter_name }
+    auto_placement: { get_input: vsphere_auto_placement }
+    resource_pool_name: { get_input: vsphere_resource_pool_name }
+    port: { get_input: vsphere_port }
+    allow_insecure: { get_input: vsphere_allow_insecure }
+
+
+inputs:
+
+  vsphere_username:
+    description: >
+      vsphere username
+    default: { get_secret: vsphere_username }
+
+  vsphere_password:
+    description: >
+      vsphere password
+    default: { get_secret: vsphere_password }
+
+  vsphere_host:
+    description: >
+      vCenter URL or IP
+    default: { get_secret: vsphere_host }
+
+  vsphere_port:
+    description: >
+      The vCenter port for SDK (443 by default).
+    default: { get_secret: vsphere_port }
+
+  vsphere_datacenter_name:
+    description: >
+      vsphere datacenter name
+    default: { get_secret: vsphere_datacenter_name }
+
+  vsphere_resource_pool_name:
+    description: |
+      The name of a resource pool. If you do not need to use a resource pool,
+      this must be set to Resources, as this is the base resource pool on vSphere.
+    default: { get_secret: vsphere_resource_pool_name }
+
+  vsphere_auto_placement:
+    description: |
+      Signifies whether to use vSphere's auto-placement instead of the plugin's.
+      Must be true if you are using clusters.
+    default: { get_secret: vsphere_auto_placement }
+
+  vsphere_allow_insecure:
+    description: |
+      Allow to skip certificate validation
+    default: false
+
+  template_name:
+    description: >
+      Template to clone VMs from
+    default: ubuntu-14.04.5-server-amd64-tmpl
+
+  cpu:
+    description: >
+      Number of CPU cores
+    default: 1
+ 
+  memory:
+    description: >
+      RAM in MB
+    default: 1024
+
+  agent_user:
+    description: >
+      User for connecting to application VMs
+    default: ubuntu
+
+  agent_key:
+    description: >
+      Path to private key for connecting to application VMs
+    default: '~/.ssh/ubuntu.pem'
+
+  network:
+    description: >
+      Which network to deploy the VM on
+    default: Management
+  
+  network_distributed:
+    description: >
+      Which switch type, distributed or legasy
+    default: true
+
+#  management_network:
+#    description: >
+#      Which network to deploy the VM on
+#  external_network:
+#    description: >
+#      Which network to deploy the VM on
+#
+#  management_network_distributed:
+#    description: >
+#      Which switch type, distributed or legasy
+#    default: true
+#
+#  external_network_distributed:
+#    description: >
+#      Which switch type, distributed or legasy
+#    default: true
+
+node_templates:
+
+  mongod_host:
+    type: nodecellar.nodes.MonitoredServer
+    properties:
+      connection_config: *connection_config
+
+  nodejs_host:
+    type: nodecellar.nodes.MonitoredServer
+    properties:
+      connection_config: *connection_config
+      
+    ###########################################################
+    # Setting the nodejs_host initial number of instances to 2.
+    # The default values for instances.deploy is 1.
+    ###########################################################
+
+    instances:
+      deploy: 2
+
+  haproxy_frontend_host:
+    type: nodecellar.nodes.MonitoredServer
+    properties:
+      connection_config: *connection_config
+
+  nodecellar:
+    type: nodecellar.nodes.NodecellarApplicationModule
+    relationships:
+
+      ################################
+      # Setting the mongo connection
+      ################################
+
+      - type: node_connected_to_mongo
+        target: mongod
+
+      ################################
+      # Setting the nodejs connection
+      ################################
+
+      - type: node_contained_in_nodejs
+        target: nodejs
+
+      ################################
+      # Setting the haproxy connection
+      ################################
+
+      - type: app_connected_to_haproxy
+        target: haproxy
+
+  mongod:
+    type: nodecellar.nodes.MonitoredMongoDatabase
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: mongod_host
+
+  nodejs:
+    type: nodecellar.nodes.NodeJSServer
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: nodejs_host
+
+  ########################################
+  # Note: only ubuntu haproxy installation
+  # is supported.
+  ########################################
+
+  haproxy:
+    type: nodecellar.nodes.MonitoredHAProxy
+    properties:
+      backend_app_port: { get_property: [ nodecellar, port ] }
+    relationships:
+      - target: haproxy_frontend_host
+        type: cloudify.relationships.contained_in
+
+
+groups:
+
+  scale_up_group:
+    members: [ nodejs_host ]
+    policies:
+      auto_scale_up:
+        type: scale_policy_type
+        properties:
+          policy_operates_on_group: true
+          scale_limit: 6
+          scale_direction: '<'
+          scale_threshold: 6
+          service_selector: .*nodejs_host.*.process.node.cpu.percent
+          cooldown_time: 60
+        triggers:
+          execute_scale_workflow:
+            type: cloudify.policies.triggers.execute_workflow
+            parameters:
+              workflow: scale
+              workflow_parameters:
+                delta: 1
+                scalable_entity_name: nodecellar
+                scale_compute: true
+
+  scale_down_group:
+    members: [ nodejs_host ]
+    policies:
+      auto_scale_down:
+        type: scale_policy_type
+        properties:
+          scale_limit: 2
+          scale_direction: '>'
+          scale_threshold: 1
+          service_selector: .*nodejs_host.*.process.node.cpu.percent
+          cooldown_time: 60
+        triggers:
+          execute_scale_workflow:
+            type: cloudify.policies.triggers.execute_workflow
+            parameters:
+              workflow: scale
+              workflow_parameters:
+                delta: -1
+                scalable_entity_name: nodecellar
+                scale_compute: true
+
+  heal_group:
+    members: [ nodejs_host]
+    policies:
+      simple_autoheal_policy:
+        type: scale_host_failure
+        properties:
+          service:
+            - .*nodejs_host.*.cpu.total.system
+          interval_between_workflows: 60
+        triggers:
+          auto_heal_trigger:
+            type: cloudify.policies.triggers.execute_workflow
+            parameters:
+              workflow: heal
+              workflow_parameters:
+                node_instance_id: { 'get_property': [ SELF, node_id ] }
+                diagnose_value: { 'get_property': [ SELF, diagnose ] }
+
+
+outputs:
+  endpoint:
+    description: Web application endpoint
+    value:
+      ip_address: { get_attribute: [ haproxy_frontend_host, ip ] }
+      port: { get_property: [haproxy, frontend_port] }
+
+
