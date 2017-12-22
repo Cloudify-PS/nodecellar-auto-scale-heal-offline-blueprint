@@ -5,10 +5,12 @@ description: >
   an haproxy instance on an vsphere environment.
 
 imports:
-  - http://cloudify.co/spec/cloudify/4.2/types.yaml
+###  - http://cloudify.co/spec/cloudify/4.2/types.yaml
+
   - http://cloudify.co/spec/vsphere-plugin/2.3.0/plugin.yaml
   - http://cloudify.co/spec/diamond-plugin/1.3.6/plugin.yaml
 
+  - types/cloudify/4.2/types.yaml
   - types/vsphere-types.yaml
   - types/nodecellar.yaml
   - types/haproxy/haproxy.yaml
@@ -73,6 +75,10 @@ inputs:
       Allow to skip certificate validation
     default: false
 
+  vsphere_allowed_datastores:
+    description: |
+      List of allowed datastores
+
   template_name:
     description: >
       Template to clone VMs from
@@ -93,10 +99,13 @@ inputs:
       User for connecting to application VMs
     default: ubuntu
 
+  agent_password:
+    description: >
+      Agent's password if key didn't provided
+
   agent_key:
     description: >
-      Path to private key for connecting to application VMs
-    default: '~/.ssh/ubuntu.pem'
+      Agent's SSH key
 
   network:
     description: >
@@ -250,7 +259,7 @@ groups:
     members: [ nodejs_host]
     policies:
       simple_autoheal_policy:
-        type: scale_host_failure
+        type: cloudify.policies.types.host_failure
         properties:
           service:
             - .*nodejs_host.*.cpu.total.system
