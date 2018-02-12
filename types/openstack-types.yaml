@@ -17,7 +17,7 @@ node_types:
           key: { get_secret: agent_key_private }
       server:
         default:
-          key_name: ''
+          key_name: { get_secret: agent_key_name }
           image: { get_input: image }
           flavor: { get_input: flavor }
       management_network_name:
@@ -31,7 +31,7 @@ node_types:
               default:
                 image: { get_input: image }
                 flavor: { get_input: flavor }
-                userdata: { get_attribute: [ cloudify_host_cloud_config, cloud_config ] }
+#                userdata: { get_attribute: [ cloudify_host_cloud_config, cloud_config ] }
 
       ###########################################################
       # We are infact telling cloudify to install a diamond
